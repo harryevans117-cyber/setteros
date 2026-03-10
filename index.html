@@ -1,6 +1,94 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
+<script>
+// SetterOS auth bridge - global functions for onclick handlers
+// These work even before DOMContentLoaded fires
+function sOSShowPanel(name) {
+  ['login','signup','forgot'].forEach(function(p) {
+    var el = document.getElementById('panel-' + p);
+    if (el) el.style.display = p === name ? 'block' : 'none';
+  });
+  var tl = document.getElementById('btn-tab-login');
+  var ts = document.getElementById('btn-tab-signup');
+  if (tl) tl.classList.toggle('active', name === 'login');
+  if (ts) ts.classList.toggle('active', name === 'signup');
+  var err = document.getElementById('auth-err');
+  if (err) err.textContent = '';
+}
+
+function sOSSetErr(msg) {
+  var el = document.getElementById('auth-err');
+  if (el) el.textContent = msg;
+}
+
+function sOSSignIn() {
+  var email = (document.getElementById('login-email') || {}).value || '';
+  var pass = (document.getElementById('login-pass') || {}).value || '';
+  email = email.trim();
+  if (!email || !pass) return sOSSetErr('Please fill in all fields');
+  if (!window._sOSdb) return sOSSetErr('Still loading, please wait a moment...');
+  var btn = document.getElementById('btn-signin');
+  if (btn) { btn.textContent = 'Signing in...'; btn.disabled = true; }
+  sOSSetErr('');
+  window._sOSdb.auth.signInWithPassword({ email: email, password: pass })
+    .then(function(r) {
+      if (r.error) {
+        sOSSetErr(r.error.message);
+        if (btn) { btn.textContent = 'Sign In →'; btn.disabled = false; }
+      }
+    });
+}
+
+function sOSSignUp() {
+  var name = (document.getElementById('signup-name') || {}).value || '';
+  var email = (document.getElementById('signup-email') || {}).value || '';
+  var pass = (document.getElementById('signup-pass') || {}).value || '';
+  var pass2 = (document.getElementById('signup-pass2') || {}).value || '';
+  name = name.trim(); email = email.trim();
+  if (!name || !email || !pass) return sOSSetErr('Please fill in all fields');
+  if (pass !== pass2) return sOSSetErr('Passwords do not match');
+  if (pass.length < 6) return sOSSetErr('Password must be at least 6 characters');
+  if (!window._sOSdb) return sOSSetErr('Still loading, please wait a moment...');
+  var btn = document.getElementById('btn-signup');
+  if (btn) { btn.textContent = 'Creating account...'; btn.disabled = true; }
+  sOSSetErr('');
+  window._sOSdb.auth.signUp({ email: email, password: pass, options: { data: { full_name: name } } })
+    .then(function(r) {
+      if (r.error) {
+        sOSSetErr(r.error.message);
+        if (btn) { btn.textContent = 'Create Account →'; btn.disabled = false; }
+      } else {
+        sOSSetErr('');
+        var errEl = document.getElementById('auth-err');
+        if (errEl) { errEl.style.color = '#10b981'; errEl.textContent = 'Account created! Check your email to confirm before signing in.'; }
+        if (btn) { btn.textContent = 'Account Created!'; btn.disabled = false; }
+      }
+    });
+}
+
+function sOSResetPw() {
+  var email = (document.getElementById('forgot-email') || {}).value || '';
+  email = email.trim();
+  if (!email) return sOSSetErr('Enter your email address');
+  if (!window._sOSdb) return sOSSetErr('Still loading, please wait a moment...');
+  var btn = document.getElementById('btn-reset');
+  if (btn) { btn.textContent = 'Sending...'; btn.disabled = true; }
+  sOSSetErr('');
+  window._sOSdb.auth.resetPasswordForEmail(email)
+    .then(function() {
+      sOSSetErr('');
+      var errEl = document.getElementById('auth-err');
+      if (errEl) { errEl.style.color = '#10b981'; errEl.textContent = 'Reset link sent! Check your email.'; }
+      if (btn) { btn.textContent = 'Sent!'; btn.disabled = false; }
+    });
+}
+
+function sOSDemo() {
+  if (window._sOSStartDemo) { window._sOSStartDemo(); } 
+  else { setTimeout(function(){ if(window._sOSStartDemo) window._sOSStartDemo(); else sOSSetErr('Still loading, please try again'); }, 1000); }
+}
+</script>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <title>SetterOS</title>
@@ -130,15 +218,15 @@ input[type=checkbox]{accent-color:var(--accent);width:14px;height:14px;cursor:po
     <div class="auth-logo">Setter<span>OS</span></div>
     <p class="auth-sub">Appointment setter command centre</p>
     <div class="auth-tabs">
-      <button class="auth-tab active" id="btn-tab-login">Sign In</button>
-      <button class="auth-tab" id="btn-tab-signup">Create Account</button>
+      <button class="auth-tab active" id="btn-tab-login" onclick="sOSShowPanel('login')">Sign In</button>
+      <button class="auth-tab" id="btn-tab-signup" onclick="sOSShowPanel('signup')">Create Account</button>
     </div>
 
     <div id="panel-login">
       <div class="auth-field"><label class="auth-label">Email</label><input class="auth-inp" id="login-email" type="email" placeholder="you@email.com"/></div>
       <div class="auth-field"><label class="auth-label">Password</label><input class="auth-inp" id="login-pass" type="password" placeholder="Your password"/></div>
-      <button class="auth-btn" id="btn-signin">Sign In &rarr;</button>
-      <p style="text-align:center;margin-top:14px;"><button id="btn-show-forgot" style="background:none;border:none;color:var(--muted);font-size:12px;cursor:pointer;font-family:Syne,sans-serif;text-decoration:underline;">Forgot password?</button></p>
+      <button class="auth-btn" id="btn-signin" onclick="sOSSignIn()">Sign In &rarr;</button>
+      <p style="text-align:center;margin-top:14px;"><button id="btn-show-forgot" onclick="sOSShowPanel('forgot')" style="background:none;border:none;color:var(--muted);font-size:12px;cursor:pointer;font-family:Syne,sans-serif;text-decoration:underline;">Forgot password?</button></p>
     </div>
 
     <div id="panel-signup" style="display:none;">
@@ -146,20 +234,20 @@ input[type=checkbox]{accent-color:var(--accent);width:14px;height:14px;cursor:po
       <div class="auth-field"><label class="auth-label">Email</label><input class="auth-inp" id="signup-email" type="email" placeholder="you@email.com"/></div>
       <div class="auth-field"><label class="auth-label">Password</label><input class="auth-inp" id="signup-pass" type="password" placeholder="Min 6 characters"/></div>
       <div class="auth-field"><label class="auth-label">Confirm Password</label><input class="auth-inp" id="signup-pass2" type="password" placeholder="Repeat password"/></div>
-      <button class="auth-btn" id="btn-signup">Create Account &rarr;</button>
+      <button class="auth-btn" id="btn-signup" onclick="sOSSignUp()">Create Account &rarr;</button>
       <p style="font-size:11px;color:var(--muted);text-align:center;margin-top:12px;line-height:1.6;">You will receive a confirmation email before you can sign in.</p>
     </div>
 
     <div id="panel-forgot" style="display:none;">
       <p style="font-size:13px;color:var(--muted);margin-bottom:16px;">Enter your email and we'll send a reset link.</p>
       <div class="auth-field"><label class="auth-label">Email</label><input class="auth-inp" id="forgot-email" type="email" placeholder="you@email.com"/></div>
-      <button class="auth-btn" id="btn-reset">Send Reset Link &rarr;</button>
-      <p style="text-align:center;margin-top:14px;"><button id="btn-back-login" style="background:none;border:none;color:var(--muted);font-size:12px;cursor:pointer;font-family:Syne,sans-serif;text-decoration:underline;">Back to Sign In</button></p>
+      <button class="auth-btn" id="btn-reset" onclick="sOSResetPw()">Send Reset Link &rarr;</button>
+      <p style="text-align:center;margin-top:14px;"><button id="btn-back-login" onclick="sOSShowPanel('login')" style="background:none;border:none;color:var(--muted);font-size:12px;cursor:pointer;font-family:Syne,sans-serif;text-decoration:underline;">Back to Sign In</button></p>
     </div>
 
     <div class="auth-err" id="auth-err"></div>
     <div class="divider"><span>or</span></div>
-    <button class="auth-btn ghost" id="btn-demo">&#128064; Try Demo &mdash; no account needed</button>
+    <button class="auth-btn ghost" id="btn-demo" onclick="sOSDemo()">&#128064; Try Demo &mdash; no account needed</button>
   </div>
 </div>
 
@@ -677,6 +765,7 @@ document.addEventListener('DOMContentLoaded', function() {
     return;
   }
   var db = _supaLib.createClient(SUPA_URL, SUPA_KEY);
+  window._sOSdb = db;
 
   // \u2500\u2500 STATE \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
   var isDemoMode = false;
