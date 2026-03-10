@@ -403,6 +403,14 @@ input[type=checkbox]{accent-color:var(--accent);width:14px;height:14px;cursor:po
           <option>Booked</option><option>No Show</option><option>Rescheduled</option>
           <option>Called</option><option>Closed</option><option>Lost</option>
         </select>
+        <select class="inp" id="lead-sort" style="max-width:170px;">
+          <option value="created_desc">Newest First</option>
+          <option value="created_asc">Oldest First</option>
+          <option value="call_date_asc">Call Date ↑</option>
+          <option value="call_date_desc">Call Date ↓</option>
+          <option value="name_asc">Name A–Z</option>
+          <option value="status">Status</option>
+        </select>
         <span id="lead-count" style="font-size:12px;color:var(--muted);margin-left:auto;"></span>
       </div>
       <div id="leads-list"></div>
@@ -1258,13 +1266,50 @@ https://us06web.zoom.us/j/89830054475?pwd=4iblC0cf1J8T7FTdmwQpzeD6pqMxCk.1'},
   function renderLeads() {
     var q = (document.getElementById('lead-search').value || '').toLowerCase();
     var f = document.getElementById('lead-filter').value || '';
+    var sortVal = (document.getElementById('lead-sort') || {}).value || 'created_desc';
     var filtered = allLeads.filter(function(l) {
       var m = (l.name||'').toLowerCase().includes(q)||(l.handle||'').toLowerCase().includes(q)||(l.location||'').toLowerCase().includes(q);
       return m && (!f || l.deal_status===f);
     });
+    // Sort
+    filtered.sort(function(a, b) {
+      if (sortVal === 'created_asc')  return (a.created_at||'').localeCompare(b.created_at||'');
+      if (sortVal === 'created_desc') return (b.created_at||'').localeCompare(a.created_at||'');
+      if (sortVal === 'call_date_asc')  return (a.call_date||'9999').localeCompare(b.call_date||'9999');
+      if (sortVal === 'call_date_desc') return (b.call_date||'').localeCompare(a.call_date||'');
+      if (sortVal === 'name_asc') return (a.name||'').localeCompare(b.name||'');
+      if (sortVal === 'status') return (a.deal_status||'').localeCompare(b.deal_status||'');
+      return 0;
+    });
     document.getElementById('lead-count').textContent = filtered.length + ' leads';
     document.getElementById('leads-list').innerHTML = filtered.length ? filtered.map(function(l) {
-      return '<div class="lead-card" data-id="'+l.id+'"><div style="flex:1;"><div class="row wrap" style="gap:7px;"><span class="lead-name">'+l.name+'</span>'+badge(l.deal_status)+(l.closed?'<span class="tag green">\u2713 Closed</span>':'')+'</div><div class="lead-meta">'+[l.handle&&'@'+l.handle,l.platform,l.location,l.occupation].filter(Boolean).join(' \u00b7 ')+'</div>'+(l.call_date?'<div class="lead-date">&#128197; '+l.call_date+(l.call_time?' at '+l.call_time:'')+(l.setter_name?' \u00b7 '+l.setter_name:'')+'</div>':'')+(l.notes?'<div class="lead-notes">'+l.notes.slice(0,140)+(l.notes.length>140?'...':'')+'</div>':'')+'<div class="lead-tags">'+(l.pre_call_video_sent?'<span class="tag">&#127909; Video</span>':'')+(l.showed?'<span class="tag green">\u2713 Showed</span>':'')+(l.cash_collected?'<span class="tag green">&#128176; '+fmt$(l.cash_collected)+'</span>':'')+(l.capital?'<span class="tag">Capital: '+l.capital+'</span>':'')+'</div></div><div style="display:flex;gap:6px;flex-shrink:0;"><button class="btn btn-secondary btn-sm lead-edit-btn" data-id="'+l.id+'">Edit</button><button class="btn btn-danger btn-sm lead-del-btn" data-id="'+l.id+'">\u2715</button></div></div>';
+      // External links — shown inline next to name
+      var mcLink = l.manychat_link ? ' <a href="'+esc(l.manychat_link)+'" target="_blank" onclick="event.stopPropagation()" style="display:inline-flex;align-items:center;gap:3px;background:#1877f222;color:#60a5fa;border:1px solid #1877f244;border-radius:12px;padding:1px 8px;font-size:10px;font-weight:700;text-decoration:none;vertical-align:middle;">💬 Chat</a>' : '';
+      var comboLink = l.combo_link ? ' <a href="'+esc(l.combo_link)+'" target="_blank" onclick="event.stopPropagation()" style="display:inline-flex;align-items:center;gap:3px;background:#7c3aed22;color:#a78bfa;border:1px solid #7c3aed44;border-radius:12px;padding:1px 8px;font-size:10px;font-weight:700;text-decoration:none;vertical-align:middle;">🔗 Combo</a>' : '';
+      var calLink = l.calendar_link ? ' <a href="'+esc(l.calendar_link)+'" target="_blank" onclick="event.stopPropagation()" style="display:inline-flex;align-items:center;gap:3px;background:#10b98122;color:#34d399;border:1px solid #10b98144;border-radius:12px;padding:1px 8px;font-size:10px;font-weight:700;text-decoration:none;vertical-align:middle;">📅 Book</a>' : '';
+      return '<div class="lead-card" data-id="'+l.id+'">'
+        +'<div style="flex:1;">'
+        +'<div class="row wrap" style="gap:6px;align-items:center;">'
+        +'<span class="lead-name">'+esc(l.name)+'</span>'
+        +mcLink+comboLink+calLink
+        +badge(l.deal_status)
+        +(l.closed?'<span class="tag green">\u2713 Closed</span>':'')
+        +'</div>'
+        +'<div class="lead-meta">'+[l.handle&&('@'+l.handle),l.platform,l.location,l.occupation].filter(Boolean).join(' \u00b7 ')+'</div>'
+        +(l.call_date?'<div class="lead-date">\ud83d\udcc5 '+l.call_date+(l.call_time?' at '+l.call_time:'')+(l.setter_name?' \u00b7 '+l.setter_name:'')+'</div>':'')
+        +(l.notes?'<div class="lead-notes">'+esc(l.notes.slice(0,140))+(l.notes.length>140?'...':'')+'</div>':'')
+        +'<div class="lead-tags" style="margin-top:5px;">'
+        +(l.pre_call_video_sent?'<span class="tag">\ud83c\udfa5 Video</span>':'')
+        +(l.showed?'<span class="tag green">\u2713 Showed</span>':'')
+        +(l.cash_collected?'<span class="tag green">\ud83d\udcb0 '+fmt$(l.cash_collected)+'</span>':'')
+        +(l.capital?'<span class="tag">Capital: '+esc(l.capital)+'</span>':'')
+        +'</div>'
+        +'</div>'
+        +'<div style="display:flex;gap:6px;flex-shrink:0;align-items:flex-start;">'
+        +'<button class="btn btn-secondary btn-sm lead-edit-btn" data-id="'+l.id+'">Edit</button>'
+        +'<button class="btn btn-danger btn-sm lead-del-btn" data-id="'+l.id+'">\u2715</button>'
+        +'</div>'
+        +'</div>';
     }).join('') : '<div style="text-align:center;padding:40px;color:var(--muted);">No leads found.</div>';
 
     // Wire edit/delete buttons
@@ -1336,6 +1381,7 @@ https://us06web.zoom.us/j/89830054475?pwd=4iblC0cf1J8T7FTdmwQpzeD6pqMxCk.1'},
   document.getElementById('lead-modal').addEventListener('click', function(e){ if(e.target===this) closeModal(); });
   document.getElementById('lead-search').addEventListener('input', renderLeads);
   document.getElementById('lead-filter').addEventListener('change', renderLeads);
+  document.getElementById('lead-sort') && document.getElementById('lead-sort').addEventListener('change', renderLeads);
   document.getElementById('btn-save-lead').addEventListener('click', saveLead);
   document.getElementById('btn-ai-fill').addEventListener('click', aiAutoFill);
 
@@ -1421,32 +1467,78 @@ https://us06web.zoom.us/j/89830054475?pwd=4iblC0cf1J8T7FTdmwQpzeD6pqMxCk.1'},
 
   // \u2500\u2500 AI \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
   function claudeApi(prompt, max) {
-    var workerUrl = getWorkerUrl();
-    if (workerUrl) {
-      return fetch(workerUrl, {
-        method: 'POST', headers: {'Content-Type':'application/json'},
-        body: JSON.stringify({prompt: prompt, max_tokens: max||1000})
-      }).then(function(r){ return r.json(); })
-        .then(function(d){ if(d.text) return d.text; if(d.error) throw new Error(d.error); return ''; });
-    }
-    return fetch('https://api.anthropic.com/v1/messages', {
+    return fetch('https://sparkling-flower-6cd9.harryevans117.workers.dev/', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': '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',
-        'anthropic-version': '2023-06-01',
-        'anthropic-dangerous-direct-browser-ipc': 'true'
-      },
-      body: JSON.stringify({
-        model: 'claude-haiku-4-5-20251001',
-        max_tokens: max || 1000,
-        messages: [{role: 'user', content: prompt}]
-      })
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({prompt: prompt, max_tokens: max || 1000})
     })
-    .then(function(r){ return r.json(); })
-    .then(function(d){
-      if (d.error) throw new Error(d.error.message || JSON.stringify(d.error));
-      return ((d.content||[]).find(function(b){return b.type==='text';})||{text:''}).text;
+    .then(function(r) {
+      if (!r.ok) return r.text().then(function(t){ throw new Error("Worker error " + r.status + ": " + t.slice(0,120)); });
+      return r.json();
+    })
+    .then(function(d) {
+      if (d.error) throw new Error(d.error);
+      if (typeof d.text === 'string') return d.text;
+      if (d.content) return ((d.content||[]).find(function(b){return b.type==='text';})||{text:''}).text;
+      return '';
+    });
+  }
+
+
+
+  // ── AI REPORTS & SUMMARIZER ───────────────────────────────────────────────
+  document.getElementById('btn-summary') && document.getElementById('btn-summary').addEventListener('click', function() {
+    var input = document.getElementById('ai-chat-input').value;
+    if (!input.trim()) return notify('Paste a chat log first', 'error');
+    var btn = this; btn.textContent = 'Generating...'; btn.disabled = true;
+    var closer = (currentProfile && currentProfile.closer_name) || 'the closer';
+    claudeApi('Summarize this DM conversation into a closer brief for ' + closer + '. Cover: location, background, interest level, pain points, capital/credit, objections, what was agreed. 4-6 sentences, one clean paragraph.\n\nChat log:\n' + input)
+    .then(function(text) {
+      document.getElementById('ai-summary-text').textContent = text;
+      document.getElementById('ai-summary-out').style.display = 'block';
+      document.getElementById('btn-copy-summary').style.display = 'inline-block';
+      btn.textContent = 'Generate Brief'; btn.disabled = false;
+    }).catch(function(e) {
+      notify('AI error: ' + e.message, 'error');
+      btn.textContent = 'Generate Brief'; btn.disabled = false;
+    });
+  });
+
+  document.getElementById('btn-copy-summary') && document.getElementById('btn-copy-summary').addEventListener('click', function() {
+    navigator.clipboard.writeText(document.getElementById('ai-summary-text').innerText);
+    this.textContent = '\u2713 Copied'; var self = this;
+    setTimeout(function(){ self.textContent = 'Copy'; }, 2000);
+  });
+
+  function generateDailyReport(target) {
+    var t = todayStr();
+    var tl = allLeads.filter(function(l){ return l.call_date === t; });
+    var ul = allLeads.filter(function(l){ return l.call_date > t; }).sort(function(a,b){ return a.call_date.localeCompare(b.call_date); }).slice(0, 5);
+    var all = tl.concat(ul);
+    if (!all.length) return notify('No calls scheduled', 'error');
+    var closer = (currentProfile && currentProfile.closer_name) || 'the closer';
+    var offer = (currentProfile && currentProfile.offer_details) || '';
+    var btnId = target === 'cal' ? 'btn-cal-brief' : 'btn-daily';
+    var btn = document.getElementById(btnId); btn.textContent = 'Generating...'; btn.disabled = true;
+    var leadsData = all.map(function(l){
+      return 'Name: ' + l.name + ' | @' + (l.handle||'') + ' | ' + l.location + ' | ' + l.occupation + ' | ' + l.deal_status + ' | Call: ' + l.call_date + ' ' + l.call_time + ' | Capital: ' + l.capital + ' | Notes: ' + l.notes;
+    }).join('\n\n');
+    claudeApi('Generate a daily closer briefing for ' + closer + '. 2-3 sentences per lead: call time, background, what they want, any flags.\n\nOffer: ' + offer + '\n\nLeads:\n' + leadsData, 2000)
+    .then(function(text) {
+      if (target === 'cal') {
+        document.getElementById('cal-report-output').innerHTML = '<div class="card" style="border-color:#6d28d933;margin-bottom:16px;"><div class="row between" style="margin-bottom:12px;"><div class="card-title" style="margin:0;">Daily Briefing \u2014 ' + new Date().toLocaleDateString() + '</div><button class="btn btn-sm btn-copy" onclick="navigator.clipboard.writeText(document.getElementById(\'cal-rep-text\').innerText);this.textContent=\'\u2713\'">Copy</button></div><div class="ai-output" style="margin:0;"><div class="ai-text" id="cal-rep-text">' + text + '</div></div></div>';
+      } else {
+        document.getElementById('daily-report-label').textContent = 'Daily Briefing \u2014 ' + new Date().toLocaleDateString();
+        document.getElementById('daily-report-text').textContent = text;
+        document.getElementById('daily-report-out').style.display = 'block';
+        document.getElementById('btn-copy-report').style.display = 'inline-block';
+      }
+      btn.textContent = target === 'cal' ? '&#128232; Generate Daily Briefing' : 'Generate Report';
+      btn.disabled = false;
+    }).catch(function(e) {
+      notify('AI error: ' + e.message, 'error');
+      btn.textContent = target === 'cal' ? '&#128232; Generate Daily Briefing' : 'Generate Report';
+      btn.disabled = false;
     });
   }
 
@@ -1677,9 +1769,7 @@ Chat:\
 
 
   // ── WORKER URL ────────────────────────────────────────────────────────────
-  function getWorkerUrl() {
-    return 'https://sparkling-flower-6cd9.harryevans117.workers.dev/';
-  }
+  function getWorkerUrl() { return ''; }
 
   function updateWorkerStatus(statusElId, url) {
     var el = document.getElementById(statusElId);
