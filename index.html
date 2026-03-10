@@ -1,4 +1,5 @@
 <!DOCTYPE html>
+<!-- SetterOS v3.1 -->
 <html lang="en">
 <head>
 <meta charset="UTF-8"/>
@@ -1189,7 +1190,7 @@ https://us06web.zoom.us/j/89830054475?pwd=4iblC0cf1J8T7FTdmwQpzeD6pqMxCk.1'},
 
   // \u2500\u2500 DATA \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
   function loadLeads() {
-    db.from('leads').select('*').eq('user_id', currentUser.id).order('created_at', {ascending: false}).then(function(res) {
+    db.from('leads').select('*').eq('user_id', currentUser.id).order('created_at', {ascending: false}).range(0, 9999).then(function(res) {
       if (res.error) return notify('Error loading leads: ' + res.error.message, 'error');
       allLeads = res.data || [];
       renderAll();
@@ -1403,6 +1404,7 @@ https://us06web.zoom.us/j/89830054475?pwd=4iblC0cf1J8T7FTdmwQpzeD6pqMxCk.1'},
     document.getElementById('f-goal').value = l.monthly_goal||'';
     document.getElementById('f-combo').value = l.combo_link||'';
     document.getElementById('f-calendar').value = l.calendar_link||'';
+    var fmc=document.getElementById('f-manychat'); if(fmc) fmc.value=l.manychat_link||'';
     document.getElementById('f-notes').value = l.notes||'';
     document.getElementById('f-chatlog').value = l.chat_log||'';
     document.getElementById('f-video').checked = !!l.pre_call_video_sent;
@@ -1427,6 +1429,7 @@ https://us06web.zoom.us/j/89830054475?pwd=4iblC0cf1J8T7FTdmwQpzeD6pqMxCk.1'},
       monthly_goal: document.getElementById('f-goal').value,
       combo_link: document.getElementById('f-combo').value,
       calendar_link: document.getElementById('f-calendar').value,
+      manychat_link: (document.getElementById('f-manychat')||{}).value||'',
       notes: document.getElementById('f-notes').value,
       chat_log: document.getElementById('f-chatlog').value,
       pre_call_video_sent: document.getElementById('f-video').checked,
@@ -1663,7 +1666,7 @@ Chat:\
     var status = document.getElementById('mgr-filter-status').value||'';
     var leads = (window._mgLeads||[]).filter(function(l){ var m=(l.name||'').toLowerCase().includes(q); return m&&(!setter||l.user_id===setter)&&(!status||l.deal_status===status); });
     function getName(uid){ var u=allUsers.find(function(u){return u.user_id===uid;}); return u?u.name:'Unknown'; }
-    document.getElementById('manager-leads-list').innerHTML = leads.slice(0,60).map(function(l){
+    document.getElementById('manager-leads-list').innerHTML = leads.map(function(l){
       return '<div class="lead-card"><div style="flex:1;"><div class="row wrap" style="gap:7px;"><span class="lead-name">'+l.name+'</span>'+badge(l.deal_status||'New Lead')+'<span class="tag purple">&#128100; '+getName(l.user_id)+'</span>'+(l.closed?'<span class="tag green">\u2713 Closed</span>':'')+'</div><div class="lead-meta">'+[l.handle&&'@'+l.handle,l.location,l.occupation].filter(Boolean).join(' \u00b7 ')+'</div>'+(l.call_date?'<div class="lead-date">&#128197; '+l.call_date+(l.call_time?' at '+l.call_time:'')+'</div>':'')+'</div>'+(l.cash_collected?'<span class="tag green">&#128176; '+fmt$(l.cash_collected)+'</span>':'')+'</div>';
     }).join('') || '<p style="color:var(--muted);padding:20px 0;font-size:13px;">No leads found.</p>';
   }
@@ -2521,7 +2524,7 @@ var btnSaveWorker = document.getElementById('btn-save-worker');
         return;
       }
       var setterIds = linkedSetters.map(function(s) { return s.user_id; });
-      db.from('leads').select('*').in('user_id', setterIds).order('created_at', { ascending: false }).then(function(lr) {
+      db.from('leads').select('*').in('user_id', setterIds).order('created_at', { ascending: false }).range(0, 9999).then(function(lr) {
         window._mgLeads = lr.data || [];
         var s = getStats(window._mgLeads);
         if (mgrStatsEl) mgrStatsEl.innerHTML = [
