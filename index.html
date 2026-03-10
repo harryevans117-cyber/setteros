@@ -27,7 +27,16 @@ function sOSSignIn(){
   var btn=document.getElementById('btn-signin');
   btn.textContent='Signing in...';btn.disabled=true;
   window._db.auth.signInWithPassword({email:email.trim(),password:pass}).then(function(r){
-    if(r.error){sOSErr(r.error.message);btn.textContent='Sign In →';btn.disabled=false;}
+    if(r.error){
+      var msg=r.error.message;
+      if(msg.toLowerCase().includes('email not confirmed')||msg.toLowerCase().includes('not confirmed')){
+        msg='Email not confirmed. Check your inbox (and spam) for the confirmation link, or contact support to get confirmation turned off.';
+      }
+      if(msg.toLowerCase().includes('invalid login')||msg.toLowerCase().includes('invalid credentials')){
+        msg='Incorrect email or password. Try again.';
+      }
+      sOSErr(msg);btn.textContent='Sign In →';btn.disabled=false;
+    }
   });
 }
 function sOSSignUp(){
@@ -43,7 +52,17 @@ function sOSSignUp(){
   btn.textContent='Creating...';btn.disabled=true;
   window._db.auth.signUp({email:email.trim(),password:pass,options:{data:{full_name:name.trim()}}}).then(function(r){
     if(r.error){sOSErr(r.error.message);btn.textContent='Create Account →';btn.disabled=false;}
-    else{sOSMsg('Done! Check your email to confirm, then sign in.');btn.textContent='Account Created!';btn.disabled=false;}
+    else{
+        // Try signing in immediately (works if email confirm is disabled in Supabase)
+        window._db.auth.signInWithPassword({email:email.trim(),password:pass}).then(function(r2){
+          if(r2.error){
+            // Email confirmation required
+            sOSMsg('Account created! Check your inbox for a confirmation email, then sign in. (Check spam too)');
+            btn.textContent='Check Your Email';btn.disabled=false;
+          }
+          // If no error, onAuthStateChange will fire and log them in automatically
+        });
+      }
   });
 }
 function sOSReset(){
@@ -59,6 +78,60 @@ function sOSReset(){
 function sOSDemo(){
   if(window._sOSStartDemo)window._sOSStartDemo();
   else{var t=0;var i=setInterval(function(){t++;if(window._sOSStartDemo){clearInterval(i);window._sOSStartDemo();}else if(t>20){clearInterval(i);sOSErr('Still loading, please refresh');}},200);}
+}
+
+function sOSSaveProfile(){
+  var psErr=function(m){var e=document.getElementById('ps-err');if(e){e.textContent=m;}};
+  var name=(document.getElementById('ps-name')||{}).value||'';
+  name=name.trim();
+  if(!name){psErr('Please enter your name');return;}
+  var btn=document.getElementById('btn-ps-save');
+  btn.textContent='Saving...';btn.disabled=true;
+  psErr('');
+  // Get current user directly from supabase session
+  var doSave=function(userId){
+    var db=window._db;
+    if(!db){psErr('App not loaded yet - please refresh the page');btn.textContent='Save & Launch →';btn.disabled=false;return;}
+    db.from('profiles').upsert({
+      user_id:userId,
+      name:name,
+      closer_name:((document.getElementById('ps-closer')||{}).value||'Harrison').trim(),
+      calendar_url:((document.getElementById('ps-cal')||{}).value||'').trim(),
+      offer_details:((document.getElementById('ps-offer')||{}).value||'').trim(),
+      role:'setter'
+    }).then(function(r){
+      if(r.error){psErr('Save failed: '+r.error.message);btn.textContent='Save & Launch →';btn.disabled=false;return;}
+      db.from('profiles').select('*').eq('user_id',userId).single().then(function(res){
+        if(window._setProfile){window._setProfile(res.data);}
+        else if(window._launchWithProfile){window._launchWithProfile(res.data);}
+        else{location.reload();}  // fallback - reload page
+        btn.textContent='Save & Launch →';btn.disabled=false;
+      });
+    }).catch(function(e){
+      psErr('Error: '+e.message);btn.textContent='Save & Launch →';btn.disabled=false;
+    });
+  };
+  if(window._currentUser){
+    doSave(window._currentUser.id);
+  } else if(window._db){
+    window._db.auth.getSession().then(function(r){
+      if(r.data&&r.data.session&&r.data.session.user){
+        doSave(r.data.session.user.id);
+      } else {
+        psErr('Not logged in - please refresh and sign in again');
+        btn.textContent='Save & Launch →';btn.disabled=false;
+      }
+    });
+  } else {
+    psErr('App still loading - please wait a moment and try again');
+    btn.textContent='Save & Launch →';btn.disabled=false;
+  }
+}
+
+function sOSSignOut(){
+  if(window._isDemoMode){if(window._exitDemo)window._exitDemo();}
+  else if(window._db){window._db.auth.signOut();}
+  else{location.reload();}
 }
 </script>
 <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet"/>
@@ -230,7 +303,8 @@ input[type=checkbox]{accent-color:var(--accent);width:14px;height:14px;cursor:po
       <p style="font-size:11px;color:var(--muted);margin-top:4px;">Google Calendar &rarr; Settings &rarr; your calendar &rarr; Integrate &rarr; copy embed URL</p>
     </div>
     <div class="auth-field"><label class="auth-label">Offer Details (for AI reports)</label><textarea class="auth-inp" id="ps-offer" rows="3" placeholder="e.g. Wholesale Mastery \u2014 AI CRM, 6000+ buyer network, 30-45 days to first deal..."></textarea></div>
-    <button class="auth-btn" id="btn-ps-save">Save &amp; Launch &rarr;</button>
+    <div id="ps-err" style="color:#ef4444;font-size:12px;margin-top:10px;text-align:center;min-height:16px;"></div>
+    <button class="auth-btn" id="btn-ps-save" onclick="sOSSaveProfile()">Save &amp; Launch &rarr;</button>
   </div>
 </div>
 
@@ -246,7 +320,7 @@ input[type=checkbox]{accent-color:var(--accent);width:14px;height:14px;cursor:po
           <div class="user-role" id="user-role-display">setter</div>
         </div>
       </div>
-      <button class="signout-btn" id="btn-signout">Sign Out</button>
+      <button class="signout-btn" id="btn-signout" onclick="sOSSignOut()">Sign Out</button>
     </div>
   </div>
 
@@ -739,6 +813,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
   // \u2500\u2500 STATE \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
   var isDemoMode = false;
+  window._isDemoMode = false;
   var currentUser = null;
   var currentProfile = null;
   var allLeads = [];
@@ -896,8 +971,11 @@ https://us06web.zoom.us/j/89830054475?pwd=4iblC0cf1J8T7FTdmwQpzeD6pqMxCk.1'},
     if (isDemoMode) return;
     if (session && session.user) {
       currentUser = session.user;
+      window._currentUser = currentUser;
       db.from('profiles').select('*').eq('user_id', currentUser.id).single().then(function(res) {
         currentProfile = res.data;
+        window._setProfile = function(p){ currentProfile = p; launchApp(); };
+        window._launchWithProfile = function(p){ currentProfile = p; launchApp(); };
         launchApp();
       });
     } else {
@@ -943,6 +1021,7 @@ https://us06web.zoom.us/j/89830054475?pwd=4iblC0cf1J8T7FTdmwQpzeD6pqMxCk.1'},
   document.getElementById('btn-demo').addEventListener('click', sOSDemo);
 
   function exitDemo() {
+    window._isDemoMode = false;
     isDemoMode = false;
     currentUser = null; currentProfile = null; allLeads = [];
     var b = document.getElementById('demo-banner'); if (b) b.remove();
