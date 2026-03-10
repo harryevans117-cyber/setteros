@@ -81,53 +81,74 @@ function sOSDemo(){
 }
 
 function sOSSaveProfile(){
-  var psErr=function(m){var e=document.getElementById('ps-err');if(e){e.textContent=m;}};
-  var name=(document.getElementById('ps-name')||{}).value||'';
-  name=name.trim();
+  var psErr=function(m){
+    var e=document.getElementById('ps-err');
+    if(e){e.style.color='#ef4444';e.textContent=m;}
+    console.error('SetterOS SaveProfile Error:',m);
+  };
+  var name=((document.getElementById('ps-name')||{}).value||'').trim();
+  console.log('sOSSaveProfile called, name=',name,'_db=',!!window._db,'_launchWithProfile=',!!window._launchWithProfile,'_currentUser=',!!window._currentUser);
   if(!name){psErr('Please enter your name');return;}
   var btn=document.getElementById('btn-ps-save');
-  btn.textContent='Saving...';btn.disabled=true;
-  psErr('');
-  // Get current user directly from supabase session
-  var doSave=function(userId){
-    var db=window._db;
-    if(!db){psErr('App not loaded yet - please refresh the page');btn.textContent='Save & Launch →';btn.disabled=false;return;}
-    db.from('profiles').upsert({
-      user_id:userId,
-      name:name,
-      closer_name:((document.getElementById('ps-closer')||{}).value||'Harrison').trim(),
-      calendar_url:((document.getElementById('ps-cal')||{}).value||'').trim(),
-      offer_details:((document.getElementById('ps-offer')||{}).value||'').trim(),
-      role:'setter'
-    }).then(function(r){
-      if(r.error){psErr('Save failed: '+r.error.message);btn.textContent='Save & Launch →';btn.disabled=false;return;}
-      db.from('profiles').select('*').eq('user_id',userId).single().then(function(res){
-        if(window._setProfile){window._setProfile(res.data);}
-        else if(window._launchWithProfile){window._launchWithProfile(res.data);}
-        else{location.reload();}  // fallback - reload page
-        btn.textContent='Save & Launch →';btn.disabled=false;
-      });
-    }).catch(function(e){
-      psErr('Error: '+e.message);btn.textContent='Save & Launch →';btn.disabled=false;
-    });
+  btn.textContent='Launching...';btn.disabled=true;
+  var profileData={
+    name:name,
+    closer_name:(((document.getElementById('ps-closer')||{}).value||'').trim()||'Harrison'),
+    calendar_url:((document.getElementById('ps-cal')||{}).value||'').trim(),
+    offer_details:((document.getElementById('ps-offer')||{}).value||'').trim(),
+    role:'setter',
+    worker_url:''
   };
-  if(window._currentUser){
-    doSave(window._currentUser.id);
+  console.log('profileData=',JSON.stringify(profileData));
+  // Try to launch immediately
+  if(window._launchWithProfile){
+    console.log('Calling _launchWithProfile');
+    window._launchWithProfile(profileData);
+    // Save to DB in background
+    if(window._currentUser&&window._db){
+      profileData.user_id=window._currentUser.id;
+      window._db.from('profiles').upsert(profileData).catch(function(e){console.warn('bg save:',e);});
+    } else if(window._db){
+      window._db.auth.getSession().then(function(r){
+        if(r.data&&r.data.session){
+          profileData.user_id=r.data.session.user.id;
+          window._db.from('profiles').upsert(profileData).catch(function(e){console.warn('bg save:',e);});
+        }
+      });
+    }
+  } else if(window._db&&window._currentUser){
+    console.log('No _launchWithProfile, saving directly');
+    profileData.user_id=window._currentUser.id;
+    window._db.from('profiles').upsert(profileData).then(function(r){
+      console.log('upsert result:',JSON.stringify(r));
+      if(r&&r.error){psErr('Save failed: '+r.error.message);btn.textContent='Save & Launch →';btn.disabled=false;return;}
+      window._db.from('profiles').select('*').eq('user_id',window._currentUser.id).single().then(function(res){
+        console.log('profile fetched:',JSON.stringify(res.data));
+        if(window._setCurrentProfile)window._setCurrentProfile(res.data);
+        location.reload();
+      });
+    }).catch(function(e){console.error('upsert catch:',e);psErr('Error: '+e.message);btn.textContent='Save & Launch →';btn.disabled=false;});
   } else if(window._db){
+    console.log('Getting session first');
     window._db.auth.getSession().then(function(r){
-      if(r.data&&r.data.session&&r.data.session.user){
-        doSave(r.data.session.user.id);
+      console.log('session:',r.data&&r.data.session?'exists':'null');
+      if(r.data&&r.data.session){
+        profileData.user_id=r.data.session.user.id;
+        window._db.from('profiles').upsert(profileData).then(function(r2){
+          if(r2&&r2.error){psErr('Save failed: '+r2.error.message);btn.textContent='Save & Launch →';btn.disabled=false;return;}
+          location.reload();
+        }).catch(function(e){psErr('Error: '+e.message);btn.textContent='Save & Launch →';btn.disabled=false;});
       } else {
-        psErr('Not logged in - please refresh and sign in again');
+        psErr('Session expired - please refresh and sign in again');
         btn.textContent='Save & Launch →';btn.disabled=false;
       }
     });
   } else {
-    psErr('App still loading - please wait a moment and try again');
-    btn.textContent='Save & Launch →';btn.disabled=false;
+    console.log('No _db at all - trying reload');
+    psErr('Loading issue - reloading...');
+    setTimeout(function(){location.reload();},1500);
   }
 }
-
 function sOSSignOut(){
   if(window._isDemoMode){if(window._exitDemo)window._exitDemo();}
   else if(window._db){window._db.auth.signOut();}
@@ -975,6 +996,7 @@ https://us06web.zoom.us/j/89830054475?pwd=4iblC0cf1J8T7FTdmwQpzeD6pqMxCk.1'},
       db.from('profiles').select('*').eq('user_id', currentUser.id).single().then(function(res) {
         currentProfile = res.data;
         window._setProfile = function(p){ currentProfile = p; launchApp(); };
+        window._setCurrentProfile = function(p){ currentProfile = p; launchApp(); };
         window._launchWithProfile = function(p){ currentProfile = p; launchApp(); };
         launchApp();
       });
