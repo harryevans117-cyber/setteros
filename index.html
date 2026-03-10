@@ -81,13 +81,8 @@ function sOSDemo(){
 }
 
 function sOSSaveProfile(){
-  var psErr=function(m){
-    var e=document.getElementById('ps-err');
-    if(e){e.style.color='#ef4444';e.textContent=m;}
-    console.error('SetterOS SaveProfile Error:',m);
-  };
+  var psErr=function(m){var e=document.getElementById('ps-err');if(e){e.style.color='#ef4444';e.textContent=m;}};
   var name=((document.getElementById('ps-name')||{}).value||'').trim();
-  console.log('sOSSaveProfile called, name=',name,'_db=',!!window._db,'_launchWithProfile=',!!window._launchWithProfile,'_currentUser=',!!window._currentUser);
   if(!name){psErr('Please enter your name');return;}
   var btn=document.getElementById('btn-ps-save');
   btn.textContent='Launching...';btn.disabled=true;
@@ -99,55 +94,42 @@ function sOSSaveProfile(){
     role:'setter',
     worker_url:''
   };
-  console.log('profileData=',JSON.stringify(profileData));
-  // Try to launch immediately
-  if(window._launchWithProfile){
-    console.log('Calling _launchWithProfile');
-    window._launchWithProfile(profileData);
-    // Save to DB in background
-    if(window._currentUser&&window._db){
-      profileData.user_id=window._currentUser.id;
-      window._db.from('profiles').upsert(profileData).catch(function(e){console.warn('bg save:',e);});
-    } else if(window._db){
-      window._db.auth.getSession().then(function(r){
-        if(r.data&&r.data.session){
-          profileData.user_id=r.data.session.user.id;
-          window._db.from('profiles').upsert(profileData).catch(function(e){console.warn('bg save:',e);});
-        }
-      });
-    }
-  } else if(window._db&&window._currentUser){
-    console.log('No _launchWithProfile, saving directly');
-    profileData.user_id=window._currentUser.id;
-    window._db.from('profiles').upsert(profileData).then(function(r){
-      console.log('upsert result:',JSON.stringify(r));
-      if(r&&r.error){psErr('Save failed: '+r.error.message);btn.textContent='Save & Launch →';btn.disabled=false;return;}
-      window._db.from('profiles').select('*').eq('user_id',window._currentUser.id).single().then(function(res){
-        console.log('profile fetched:',JSON.stringify(res.data));
-        if(window._setCurrentProfile)window._setCurrentProfile(res.data);
-        location.reload();
-      });
-    }).catch(function(e){console.error('upsert catch:',e);psErr('Error: '+e.message);btn.textContent='Save & Launch →';btn.disabled=false;});
-  } else if(window._db){
-    console.log('Getting session first');
-    window._db.auth.getSession().then(function(r){
-      console.log('session:',r.data&&r.data.session?'exists':'null');
-      if(r.data&&r.data.session){
-        profileData.user_id=r.data.session.user.id;
-        window._db.from('profiles').upsert(profileData).then(function(r2){
-          if(r2&&r2.error){psErr('Save failed: '+r2.error.message);btn.textContent='Save & Launch →';btn.disabled=false;return;}
-          location.reload();
-        }).catch(function(e){psErr('Error: '+e.message);btn.textContent='Save & Launch →';btn.disabled=false;});
-      } else {
-        psErr('Session expired - please refresh and sign in again');
-        btn.textContent='Save & Launch →';btn.disabled=false;
-      }
-    });
-  } else {
-    console.log('No _db at all - trying reload');
-    psErr('Loading issue - reloading...');
-    setTimeout(function(){location.reload();},1500);
+  var launch=function(data){
+    if(window._launchWithProfile){window._launchWithProfile(data);}
+    else if(window._setProfile){window._setProfile(data);}
+    else{location.reload();}
+  };
+  var uid=window._currentUser?window._currentUser.id:null;
+  if(!uid||!window._db){
+    // No DB yet - just launch with local data, it'll sync later
+    launch(profileData);
+    return;
   }
+  profileData.user_id=uid;
+  // Try insert first
+  window._db.from('profiles').insert(profileData)
+    .then(function(r){
+      if(r.error){
+        // Already exists - update it
+        return window._db.from('profiles').update({
+          name:profileData.name,
+          closer_name:profileData.closer_name,
+          calendar_url:profileData.calendar_url,
+          offer_details:profileData.offer_details,
+          role:'setter'
+        }).eq('user_id',uid);
+      }
+    })
+    .then(function(){
+      return window._db.from('profiles').select('*').eq('user_id',uid).single();
+    })
+    .then(function(res){
+      launch(res&&res.data?res.data:profileData);
+    })
+    .catch(function(e){
+      console.warn('Profile save error (launching anyway):',e);
+      launch(profileData); // Launch regardless of DB error
+    });
 }
 function sOSSignOut(){
   if(window._isDemoMode){if(window._exitDemo)window._exitDemo();}
@@ -354,6 +336,7 @@ input[type=checkbox]{accent-color:var(--accent);width:14px;height:14px;cursor:po
     <button class="nav-btn" data-tab="messages">Messages</button>
     <button class="nav-btn" data-tab="scripts">Scripts</button>
     <button class="nav-btn" data-tab="goals">Goals</button>
+    <button class="nav-btn" data-tab="earnings">Earnings 💰</button>
     <button class="nav-btn" data-tab="import">Import</button>
     <button class="nav-btn" data-tab="reports">Reports</button>
     <button class="nav-btn" data-tab="integrations">Integrations</button>
@@ -372,6 +355,39 @@ input[type=checkbox]{accent-color:var(--accent);width:14px;height:14px;cursor:po
         <div class="card" style="flex:1;min-width:260px;"><div class="card-title"> Upcoming</div><div id="upcoming-calls"></div></div>
       </div>
       <div class="card"><div class="card-title">Pipeline</div><div class="pipeline" id="pipeline"></div></div>
+      
+      <!-- Hot Leads -->
+      <div class="card" style="border-color:#f59e0b33;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+          <div class="card-title" style="margin:0;">🔥 Hot Leads — Need Action</div>
+          <span id="hot-leads-count" style="font-size:11px;color:var(--muted);"></span>
+        </div>
+        <div id="hot-leads-list"></div>
+      </div>
+
+      <!-- AI Pitch Generator -->
+      <div class="card" style="border-color:#6d28d933;">
+        <div class="card-title">⚡ Quick Pitch Generator</div>
+        <p style="font-size:12px;color:var(--muted);margin-bottom:14px;">Generate a custom opening pitch for any lead in seconds</p>
+        <div class="form-grid">
+          <div class="form-field">
+            <label class="inp-label">Lead's Occupation</label>
+            <input class="inp" id="pitch-occ" placeholder="e.g. Nurse, Construction worker"/>
+          </div>
+          <div class="form-field">
+            <label class="inp-label">Platform / Context</label>
+            <input class="inp" id="pitch-context" placeholder="e.g. Instagram, liked your reel"/>
+          </div>
+        </div>
+        <button class="btn btn-primary" style="margin-top:12px;" id="btn-gen-pitch">⚡ Generate Pitch</button>
+        <div id="pitch-output" style="display:none;margin-top:14px;">
+          <div class="ai-output">
+            <div class="ai-label">Opening Pitch</div>
+            <div class="ai-text" id="pitch-text"></div>
+          </div>
+          <button class="btn btn-copy btn-sm" style="margin-top:8px;" id="btn-copy-pitch">Copy</button>
+        </div>
+      </div>
     </div>
 
     <div id="tab-leads" class="tab">
@@ -408,7 +424,68 @@ input[type=checkbox]{accent-color:var(--accent);width:14px;height:14px;cursor:po
       </div>
     </div>
 
-    <div id="tab-import" class="tab">
+    <div <div id="tab-earnings" class="tab">
+  <p class="page-title">Earnings 💰</p>
+  <p class="page-sub">Track your commissions and total cash collected</p>
+
+  <!-- Commission Calculator -->
+  <div class="card">
+    <div class="card-title">💸 Commission Calculator</div>
+    <div class="form-grid" style="margin-bottom:16px;">
+      <div class="form-field">
+        <label class="inp-label">Your Commission %</label>
+        <input class="inp" id="earn-pct" type="number" placeholder="e.g. 10" min="0" max="100" step="0.5"/>
+        <p style="font-size:10px;color:var(--muted);margin-top:4px;">Enter your agreed setter % of each deal</p>
+      </div>
+      <div class="form-field">
+        <label class="inp-label">Filter by Month</label>
+        <input class="inp" id="earn-month" type="month"/>
+      </div>
+    </div>
+    <button class="btn btn-primary" id="btn-calc-earn">Calculate Earnings</button>
+    <div id="earn-results" style="display:none;margin-top:20px;">
+      <div class="stats-grid" id="earn-stats"></div>
+      <div class="card" style="margin-top:14px;border-color:#6d28d922;">
+        <div class="card-title" style="margin-bottom:14px;">💰 Closed Deals</div>
+        <div id="earn-deals-list"></div>
+        <div id="earn-total-row" style="border-top:1px solid var(--border);padding-top:14px;margin-top:8px;display:flex;justify-content:space-between;align-items:center;">
+          <span style="font-size:13px;font-weight:700;color:#fff;">Total Cash Collected</span>
+          <span id="earn-grand-total" style="font-size:22px;font-weight:800;color:#34d399;font-family:var(--mono);"></span>
+        </div>
+        <div style="border-top:1px solid var(--border);padding-top:14px;margin-top:8px;display:flex;justify-content:space-between;align-items:center;">
+          <span style="font-size:13px;font-weight:700;color:#fff;">Your Commission</span>
+          <span id="earn-commission" style="font-size:26px;font-weight:800;color:var(--accent2);font-family:var(--mono);"></span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Log Cash for a Lead -->
+  <div class="card">
+    <div class="card-title">📝 Log Cash Collected</div>
+    <p style="font-size:12px;color:var(--muted);margin-bottom:16px;">Quickly update how much cash was collected for a specific lead</p>
+    <div class="form-grid">
+      <div class="form-field">
+        <label class="inp-label">Lead</label>
+        <select class="inp" id="earn-lead-sel"></select>
+      </div>
+      <div class="form-field">
+        <label class="inp-label">Cash Collected ($)</label>
+        <input class="inp" type="number" id="earn-cash-amt" placeholder="e.g. 5000" min="0"/>
+      </div>
+    </div>
+    <button class="btn btn-primary" style="margin-top:12px;" id="btn-log-cash">Save Cash Amount</button>
+    <div id="earn-log-msg" style="font-size:12px;margin-top:8px;min-height:16px;"></div>
+  </div>
+
+  <!-- All-time summary -->
+  <div class="card">
+    <div class="card-title">📊 All-Time Summary</div>
+    <div class="stats-grid" id="earn-alltime-stats"></div>
+  </div>
+</div>
+
+id="tab-import" class="tab">
       <p class="page-title">Import Spreadsheet</p>
       <p class="page-sub">Upload your booked call tracker to bulk import leads.</p>
       <div class="card">
@@ -793,6 +870,7 @@ input[type=checkbox]{accent-color:var(--accent);width:14px;height:14px;cursor:po
       <div class="form-field"><label class="inp-label">Cash Collected ($)</label><input class="inp" type="number" id="f-cash" placeholder="0"/></div>
       <div class="form-field"><label class="inp-label">Combo / ManyChat Link</label><input class="inp" id="f-combo"/></div>
       <div class="form-field"><label class="inp-label">Calendar / Booking Link</label><input class="inp" id="f-calendar"/></div>
+      <div class="form-field"><label class="inp-label">ManyChat Link</label><input class="inp" id="f-manychat" placeholder="https://manychat.com/..."/></div>
     </div>
     <div class="form-field" style="margin-top:14px;"><label class="inp-label">Notes / Closer Brief</label><textarea class="inp" id="f-notes" rows="3" placeholder="Background, objections, key points..."></textarea></div>
     <div class="form-field" style="margin-top:14px;"><label class="inp-label">Chat Log (paste then click AI Auto-Fill)</label><textarea class="inp" id="f-chatlog" rows="4" placeholder="Paste DM conversation here..."></textarea></div>
@@ -1123,9 +1201,22 @@ https://us06web.zoom.us/j/89830054475?pwd=4iblC0cf1J8T7FTdmwQpzeD6pqMxCk.1'},
 
   function renderCalEmbed() {
     var url = currentProfile && currentProfile.calendar_url;
-    document.getElementById('cal-embed-wrap').innerHTML = url
-      ? '<div style="border-radius:10px;overflow:hidden;border:1px solid var(--border);margin-top:14px;"><iframe src="' + url + '" style="width:100%;height:500px;border:none;display:block;" allowfullscreen></iframe></div>'
-      : '<p style="color:var(--muted);font-size:13px;">Add your closer\'s Google Calendar embed URL in Settings.</p>';
+    var el = document.getElementById('cal-embed-wrap');
+    if (!el) return;
+    if (!url) {
+      el.innerHTML = '<p style="color:var(--muted);font-size:13px;">Add your closer\'s Google Calendar embed URL in Settings.</p>';
+      return;
+    }
+    // Google Calendar embeds often block in iframes due to X-Frame-Options
+    // Show both an open link AND attempt the embed
+    el.innerHTML = '<div style="margin-top:14px;">'
+      + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">'
+      + '<span style="font-size:11px;color:var(--muted);">If the calendar doesn\'t load, click Open ↗</span>'
+      + '<a href="' + url + '" target="_blank" class="btn btn-secondary btn-sm">Open in new tab ↗</a>'
+      + '</div>'
+      + '<div style="border-radius:10px;overflow:hidden;border:1px solid var(--border);">'
+      + '<iframe src="' + url + '" style="width:100%;height:500px;border:none;display:block;" allowfullscreen></iframe>'
+      + '</div></div>';
   }
 
   // \u2500\u2500 NAV \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
@@ -1197,6 +1288,30 @@ https://us06web.zoom.us/j/89830054475?pwd=4iblC0cf1J8T7FTdmwQpzeD6pqMxCk.1'},
       var count = allLeads.filter(function(l){ return l.deal_status===s; }).length;
       return '<div class="pipe-item" style="border:1px solid '+(SC[s]||'#6d28d9')+'22;"><div class="pipe-num" style="color:'+(SC[s]||'#6d28d9')+'">'+count+'</div><div class="pipe-label">'+s+'</div></div>';
     }).join('');
+    // Hot leads - booked, no show, rescheduled needing follow up
+    var hotLeads = allLeads.filter(function(l){ return ['Booked','No Show','Rescheduled'].includes(l.deal_status) && !l.closed; })
+      .sort(function(a,b){ return (b.call_date||'').localeCompare(a.call_date||''); }).slice(0,6);
+    var hlEl = document.getElementById('hot-leads-list');
+    var hlCount = document.getElementById('hot-leads-count');
+    if(hlCount) hlCount.textContent = hotLeads.length + ' leads';
+    if(hlEl) hlEl.innerHTML = hotLeads.length ? hotLeads.map(function(l){
+      var statusColor = {'Booked':'#f59e0b','No Show':'#ef4444','Rescheduled':'#8b5cf6'}[l.deal_status]||'#888';
+      var links = '';
+      if(l.combo_link) links += '<a href="'+esc(l.combo_link)+'" target="_blank" class="btn btn-sm" style="background:rgba(139,92,246,0.1);color:#8b5cf6;border:1px solid rgba(139,92,246,0.2);text-decoration:none;padding:2px 8px;font-size:10px;">Combo ↗</a>';
+      if(l.manychat_link) links += '<a href="'+esc(l.manychat_link)+'" target="_blank" class="btn btn-sm" style="background:rgba(59,130,246,0.1);color:#60a5fa;border:1px solid rgba(59,130,246,0.2);text-decoration:none;padding:2px 8px;font-size:10px;">ManyChat ↗</a>';
+      return '<div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border);">'
+        +'<div style="width:8px;height:8px;border-radius:50%;background:'+statusColor+';flex-shrink:0;"></div>'
+        +'<div style="flex:1;"><div style="font-weight:700;color:#fff;font-size:13px;">'+esc(l.name)+'<span style="color:var(--muted);font-size:11px;margin-left:8px;">'+esc(l.handle||'')+'</span></div>'
+        +'<div style="font-size:11px;color:var(--muted);margin-top:2px;">'+l.deal_status+(l.call_date?' · '+l.call_date:'')+'</div></div>'
+        +'<div style="display:flex;gap:5px;align-items:center;">'+links
+        +'<button class="btn btn-secondary btn-sm lead-edit-btn" data-id="'+l.id+'" style="font-size:10px;">Edit</button></div></div>';
+    }).join('') : '<p style="color:var(--muted);font-size:12px;padding:12px 0;text-align:center;">No hot leads right now 🎉</p>';
+    if(hlEl) hlEl.querySelectorAll('.lead-edit-btn').forEach(function(btn){
+      btn.addEventListener('click', function(){
+        var lead = allLeads.find(function(x){return x.id===btn.getAttribute('data-id');});
+        if(lead) openLeadForm(lead);
+      });
+    });
   }
 
   function renderLeads() {
@@ -1366,30 +1481,47 @@ https://us06web.zoom.us/j/89830054475?pwd=4iblC0cf1J8T7FTdmwQpzeD6pqMxCk.1'},
   // \u2500\u2500 AI \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
   function claudeApi(prompt, max) {
     var workerUrl = getWorkerUrl();
-    if (!workerUrl) return Promise.reject(new Error('No AI Worker URL set. Go to Settings or Integrations tab to add your Cloudflare Worker URL.'));
-    return fetch(workerUrl, {
+    if (workerUrl) {
+      return fetch(workerUrl, {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({prompt: prompt, max_tokens: max||1000})
+      }).then(function(r){ return r.json(); }).then(function(d){
+        if (d.text) return d.text; if (d.error) throw new Error(d.error); return '';
+      });
+    }
+    // Direct API fallback
+    return fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
-      headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({prompt: prompt, max_tokens: max||1000})
-    }).then(function(r){ return r.json(); }).then(function(d){
-      if (d.text) return d.text;
-      if (d.error) throw new Error(d.error);
-      return 'Error: unexpected response';
-    });
+      headers: {
+        'Content-Type':'application/json',
+        'x-api-key':'sk-ant-api03-pIQAf7NyI65QcL4TSqV0sTIPWRRjimrKXQ-DX9BsJMaVWijbzRyEb8nkAUZ1Z2ZvCjgomIxKpJmJBpnW-vEv5g-jguvtQAA',
+        'anthropic-version':'2023-06-01',
+        'anthropic-dangerous-direct-browser-ipc':'true'
+      },
+      body: JSON.stringify({
+        model:'claude-haiku-4-5-20251001', max_tokens:max||1000,
+        messages:[{role:'user',content:prompt}]
+      })
+    }).then(function(r){ return r.json(); })
+      .then(function(d){
+        if(d.error) throw new Error(d.error.message||JSON.stringify(d.error));
+        return ((d.content||[]).find(function(b){return b.type==='text';})||{text:''}).text;
+      });
   }
 
   document.getElementById('btn-summary').addEventListener('click', function() {
     var input = document.getElementById('ai-chat-input').value;
     if (!input.trim()) return notify('Paste a chat log first', 'error');
     var btn = this; btn.textContent = 'Generating...'; btn.disabled = true;
-    var closer = currentProfile && currentProfile.closer_name || 'the closer';
-    claudeApi('Summarize this DM conversation into a brief closer brief for '+closer+'. Cover: location, background, interest level, pain points, capital/credit, objections, what was agreed. 4-6 sentences, one clean paragraph.\
-\
-Chat log:\
-'+input).then(function(text) {
+    var closer = (currentProfile && currentProfile.closer_name) || 'the closer';
+    claudeApi('Summarize this DM conversation into a brief closer brief for '+closer+'. Cover: location, background, interest level, pain points, capital/credit, objections, what was agreed. 4-6 sentences, one clean paragraph.\n\nChat log:\n'+input)
+    .then(function(text) {
       document.getElementById('ai-summary-text').textContent = text;
       document.getElementById('ai-summary-out').style.display = 'block';
       document.getElementById('btn-copy-summary').style.display = 'inline-block';
+      btn.textContent = 'Generate Brief'; btn.disabled = false;
+    }).catch(function(e) {
+      notify('AI error: ' + e.message, 'error');
       btn.textContent = 'Generate Brief'; btn.disabled = false;
     });
   });
@@ -1427,6 +1559,9 @@ Leads:\
         document.getElementById('daily-report-out').style.display = 'block';
         document.getElementById('btn-copy-report').style.display = 'inline-block';
       }
+      btn.textContent = target==='cal' ? '&#128232; Generate Daily Briefing' : 'Generate Report'; btn.disabled = false;
+    }).catch(function(e) {
+      notify('AI error: ' + e.message, 'error');
       btn.textContent = target==='cal' ? '&#128232; Generate Daily Briefing' : 'Generate Report'; btn.disabled = false;
     });
   }
@@ -1852,6 +1987,27 @@ Chat:\
   }
 
   // ── OBJECTIONS ────────────────────────────────────────────────────────────
+
+  // ── QUICK PITCH GENERATOR ─────────────────────────────────────────────────
+  document.getElementById('btn-gen-pitch') && document.getElementById('btn-gen-pitch').addEventListener('click', function() {
+    var occ = (document.getElementById('pitch-occ')||{}).value||'';
+    var ctx = (document.getElementById('pitch-context')||{}).value||'';
+    if (!occ.trim()) { notify('Enter the lead\'s occupation', 'error'); return; }
+    var btn = this; btn.textContent = 'Generating...'; btn.disabled = true;
+    var offer = (currentProfile&&currentProfile.offer_details)||'a real estate wholesaling program that helps people close their first deal in 30-45 days';
+    var prompt = 'Write a short 2-3 sentence DM opening message for an appointment setter reaching out to a ' + occ + (ctx?' on '+ctx:'') + '.\n\nWe offer: ' + offer + '\n\nRules: Sound genuine, not salesy. Lead with curiosity about their situation. Natural conversational tone. No emojis overdose. End with a soft open question. Return ONLY the message.';
+    claudeApi(prompt, 300).then(function(text) {
+      document.getElementById('pitch-text').textContent = text.trim();
+      document.getElementById('pitch-output').style.display = 'block';
+      btn.textContent = '⚡ Generate Pitch'; btn.disabled = false;
+    }).catch(function(e){ notify('AI error: '+e.message,'error'); btn.textContent='⚡ Generate Pitch'; btn.disabled=false; });
+  });
+  document.getElementById('btn-copy-pitch') && document.getElementById('btn-copy-pitch').addEventListener('click', function() {
+    var t = (document.getElementById('pitch-text')||{}).textContent||'';
+    navigator.clipboard.writeText(t); notify('Pitch copied ✓');
+    this.textContent='✓ Copied'; var self=this; setTimeout(function(){self.textContent='Copy';},2000);
+  });
+
   var OBJECTIONS = [
     "I don't have enough money", "I need to think about it", "I'm too busy right now",
     "I've been burned by courses before", "My credit is bad", "I don't know anything about real estate",
@@ -2140,6 +2296,102 @@ Chat:\
       }).join('');
     }
   }
+
+
+  // ── EARNINGS TAB ─────────────────────────────────────────────────────────
+  function initEarningsTab() {
+    // Set default month to current month
+    var monthEl = document.getElementById('earn-month');
+    if (monthEl) monthEl.value = todayStr().slice(0,7);
+    // Load all-time stats
+    renderEarningsSummary();
+    // Populate lead selector
+    var sel = document.getElementById('earn-lead-sel');
+    if (sel) {
+      sel.innerHTML = allLeads.map(function(l){
+        return '<option value="'+l.id+'">'+esc(l.name)+(l.cash_collected?' — '+fmt$(l.cash_collected):'')+'</option>';
+      }).join('');
+    }
+    // Restore saved commission %
+    var pct = localStorage.getItem('earn_pct');
+    if (pct) { var el = document.getElementById('earn-pct'); if(el) el.value = pct; }
+  }
+
+  function renderEarningsSummary() {
+    var el = document.getElementById('earn-alltime-stats');
+    if (!el) return;
+    var closed = allLeads.filter(function(l){ return l.closed || l.cash_collected > 0; });
+    var totalCash = allLeads.reduce(function(a,l){ return a+(parseFloat(l.cash_collected)||0); }, 0);
+    var pct = parseFloat(localStorage.getItem('earn_pct')) || 0;
+    var commission = totalCash * pct / 100;
+    var thisMonth = todayStr().slice(0,7);
+    var monthCash = allLeads.filter(function(l){ return (l.created_at||'').slice(0,7)===thisMonth; })
+      .reduce(function(a,l){ return a+(parseFloat(l.cash_collected)||0); }, 0);
+    el.innerHTML = [
+      {n:fmt$(totalCash), l:'Total Cash Collected', c:'#34d399'},
+      {n:fmt$(monthCash), l:'This Month', c:'var(--accent2)'},
+      {n:closed.length, l:'Closed Deals', c:'#fff'},
+      {n:pct?fmt$(commission):'Set % →', l:'Your Commission', c:'var(--accent2)'}
+    ].map(function(i){ return '<div class="stat-card"><div class="stat-num" style="color:'+i.c+';">'+i.n+'</div><div class="stat-label">'+i.l+'</div></div>'; }).join('');
+  }
+
+  document.getElementById('btn-calc-earn') && document.getElementById('btn-calc-earn').addEventListener('click', function() {
+    var pct = parseFloat(document.getElementById('earn-pct').value) || 0;
+    var month = document.getElementById('earn-month').value || todayStr().slice(0,7);
+    localStorage.setItem('earn_pct', pct);
+    var filtered = allLeads.filter(function(l){
+      if (!l.cash_collected || l.cash_collected <= 0) return false;
+      var d = (l.call_date || l.created_at || '').slice(0,7);
+      return !month || d === month;
+    });
+    var total = filtered.reduce(function(a,l){ return a+(parseFloat(l.cash_collected)||0); }, 0);
+    var commission = total * pct / 100;
+    document.getElementById('earn-results').style.display = 'block';
+    document.getElementById('earn-stats').innerHTML = [
+      {n:filtered.length, l:'Deals', c:'#fff'},
+      {n:fmt$(total), l:'Cash Collected', c:'#34d399'},
+      {n:pct+'%', l:'Your Rate', c:'var(--muted)'},
+      {n:fmt$(commission), l:'Your Earnings', c:'var(--accent2)'}
+    ].map(function(i){ return '<div class="stat-card"><div class="stat-num" style="color:'+i.c+';">'+i.n+'</div><div class="stat-label">'+i.l+'</div></div>'; }).join('');
+    document.getElementById('earn-grand-total').textContent = fmt$(total);
+    document.getElementById('earn-commission').textContent = fmt$(commission);
+    document.getElementById('earn-deals-list').innerHTML = filtered.length ? filtered.map(function(l){
+      var comm = (parseFloat(l.cash_collected)||0) * pct / 100;
+      return '<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid var(--border);gap:12px;">'
+        +'<div><div style="font-weight:700;color:#fff;font-size:13px;">'+esc(l.name)+'</div>'
+        +'<div style="font-size:11px;color:var(--muted);">'+(l.call_date||l.created_at||'').slice(0,10)+' · '+esc(l.setter_name||'')+'</div></div>'
+        +'<div style="text-align:right;flex-shrink:0;">'
+        +'<div style="font-size:14px;font-weight:800;color:#34d399;">'+fmt$(l.cash_collected)+'</div>'
+        +(pct?'<div style="font-size:11px;color:var(--accent2);">You: '+fmt$(comm)+'</div>':'')
+        +'</div></div>';
+    }).join('') : '<p style="color:var(--muted);font-size:12px;padding:12px 0;">No closed deals for this period.</p>';
+    renderEarningsSummary();
+  });
+
+  document.getElementById('btn-log-cash') && document.getElementById('btn-log-cash').addEventListener('click', function() {
+    var leadId = document.getElementById('earn-lead-sel').value;
+    var amt = parseFloat(document.getElementById('earn-cash-amt').value) || 0;
+    var msgEl = document.getElementById('earn-log-msg');
+    if (!leadId) { if(msgEl) {msgEl.style.color='#ef4444';msgEl.textContent='Select a lead';} return; }
+    var btn = this; btn.textContent = 'Saving...'; btn.disabled = true;
+    if (isDemoMode) {
+      var l = allLeads.find(function(x){ return x.id===leadId; });
+      if (l) l.cash_collected = amt;
+      if(msgEl){msgEl.style.color='#34d399';msgEl.textContent='Updated ✓';}
+      btn.textContent='Save Cash Amount';btn.disabled=false;
+      renderAll(); initEarningsTab(); return;
+    }
+    db.from('leads').update({cash_collected: amt, closed: amt > 0}).eq('id', leadId).then(function(r){
+      if(r.error){if(msgEl){msgEl.style.color='#ef4444';msgEl.textContent='Error: '+r.error.message;}}
+      else{if(msgEl){msgEl.style.color='#34d399';msgEl.textContent='Saved ✓';}loadLeads();}
+      btn.textContent='Save Cash Amount';btn.disabled=false;
+    });
+  });
+
+  // Refresh earnings when switching to tab
+  document.querySelectorAll('.nav-btn[data-tab="earnings"]').forEach(function(btn){
+    btn.addEventListener('click', function(){ initEarningsTab(); });
+  });
 
   var btnSaveGoals = document.getElementById('btn-save-goals');
   if (btnSaveGoals) {
