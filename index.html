@@ -1,98 +1,66 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>SetterOS</title>
 <script>
-// SetterOS auth bridge - global functions for onclick handlers
-// These work even before DOMContentLoaded fires
-function sOSShowPanel(name) {
-  ['login','signup','forgot'].forEach(function(p) {
-    var el = document.getElementById('panel-' + p);
-    if (el) el.style.display = p === name ? 'block' : 'none';
+// Global auth handlers - work instantly, no dependencies
+function sOSErr(m){var e=document.getElementById('auth-err');if(e){e.style.color='#ef4444';e.textContent=m;}}
+function sOSMsg(m){var e=document.getElementById('auth-err');if(e){e.style.color='#10b981';e.textContent=m;}}
+function sOSPanel(n){
+  ['login','signup','forgot'].forEach(function(p){
+    var el=document.getElementById('panel-'+p);
+    if(el)el.style.display=p===n?'block':'none';
   });
-  var tl = document.getElementById('btn-tab-login');
-  var ts = document.getElementById('btn-tab-signup');
-  if (tl) tl.classList.toggle('active', name === 'login');
-  if (ts) ts.classList.toggle('active', name === 'signup');
-  var err = document.getElementById('auth-err');
-  if (err) err.textContent = '';
+  var tl=document.getElementById('btn-tab-login');
+  var ts=document.getElementById('btn-tab-signup');
+  if(tl)tl.classList.toggle('active',n==='login');
+  if(ts)ts.classList.toggle('active',n==='signup');
+  sOSErr('');
 }
-
-function sOSSetErr(msg) {
-  var el = document.getElementById('auth-err');
-  if (el) el.textContent = msg;
+function sOSSignIn(){
+  var email=(document.getElementById('login-email')||{}).value||'';
+  var pass=(document.getElementById('login-pass')||{}).value||'';
+  if(!email.trim()||!pass)return sOSErr('Fill in all fields');
+  if(!window._db)return sOSErr('Loading... try again in a moment');
+  var btn=document.getElementById('btn-signin');
+  btn.textContent='Signing in...';btn.disabled=true;
+  window._db.auth.signInWithPassword({email:email.trim(),password:pass}).then(function(r){
+    if(r.error){sOSErr(r.error.message);btn.textContent='Sign In →';btn.disabled=false;}
+  });
 }
-
-function sOSSignIn() {
-  var email = (document.getElementById('login-email') || {}).value || '';
-  var pass = (document.getElementById('login-pass') || {}).value || '';
-  email = email.trim();
-  if (!email || !pass) return sOSSetErr('Please fill in all fields');
-  if (!window._sOSdb) return sOSSetErr('Still loading, please wait a moment...');
-  var btn = document.getElementById('btn-signin');
-  if (btn) { btn.textContent = 'Signing in...'; btn.disabled = true; }
-  sOSSetErr('');
-  window._sOSdb.auth.signInWithPassword({ email: email, password: pass })
-    .then(function(r) {
-      if (r.error) {
-        sOSSetErr(r.error.message);
-        if (btn) { btn.textContent = 'Sign In →'; btn.disabled = false; }
-      }
-    });
+function sOSSignUp(){
+  var name=(document.getElementById('signup-name')||{}).value||'';
+  var email=(document.getElementById('signup-email')||{}).value||'';
+  var pass=(document.getElementById('signup-pass')||{}).value||'';
+  var p2=(document.getElementById('signup-pass2')||{}).value||'';
+  if(!name.trim()||!email.trim()||!pass)return sOSErr('Fill in all fields');
+  if(pass!==p2)return sOSErr('Passwords do not match');
+  if(pass.length<6)return sOSErr('Password needs 6+ characters');
+  if(!window._db)return sOSErr('Loading... try again in a moment');
+  var btn=document.getElementById('btn-signup');
+  btn.textContent='Creating...';btn.disabled=true;
+  window._db.auth.signUp({email:email.trim(),password:pass,options:{data:{full_name:name.trim()}}}).then(function(r){
+    if(r.error){sOSErr(r.error.message);btn.textContent='Create Account →';btn.disabled=false;}
+    else{sOSMsg('Done! Check your email to confirm, then sign in.');btn.textContent='Account Created!';btn.disabled=false;}
+  });
 }
-
-function sOSSignUp() {
-  var name = (document.getElementById('signup-name') || {}).value || '';
-  var email = (document.getElementById('signup-email') || {}).value || '';
-  var pass = (document.getElementById('signup-pass') || {}).value || '';
-  var pass2 = (document.getElementById('signup-pass2') || {}).value || '';
-  name = name.trim(); email = email.trim();
-  if (!name || !email || !pass) return sOSSetErr('Please fill in all fields');
-  if (pass !== pass2) return sOSSetErr('Passwords do not match');
-  if (pass.length < 6) return sOSSetErr('Password must be at least 6 characters');
-  if (!window._sOSdb) return sOSSetErr('Still loading, please wait a moment...');
-  var btn = document.getElementById('btn-signup');
-  if (btn) { btn.textContent = 'Creating account...'; btn.disabled = true; }
-  sOSSetErr('');
-  window._sOSdb.auth.signUp({ email: email, password: pass, options: { data: { full_name: name } } })
-    .then(function(r) {
-      if (r.error) {
-        sOSSetErr(r.error.message);
-        if (btn) { btn.textContent = 'Create Account →'; btn.disabled = false; }
-      } else {
-        sOSSetErr('');
-        var errEl = document.getElementById('auth-err');
-        if (errEl) { errEl.style.color = '#10b981'; errEl.textContent = 'Account created! Check your email to confirm before signing in.'; }
-        if (btn) { btn.textContent = 'Account Created!'; btn.disabled = false; }
-      }
-    });
+function sOSReset(){
+  var email=(document.getElementById('forgot-email')||{}).value||'';
+  if(!email.trim())return sOSErr('Enter your email');
+  if(!window._db)return sOSErr('Loading... try again in a moment');
+  var btn=document.getElementById('btn-reset');
+  btn.textContent='Sending...';btn.disabled=true;
+  window._db.auth.resetPasswordForEmail(email.trim()).then(function(){
+    sOSMsg('Reset link sent! Check your email.');btn.textContent='Sent!';btn.disabled=false;
+  });
 }
-
-function sOSResetPw() {
-  var email = (document.getElementById('forgot-email') || {}).value || '';
-  email = email.trim();
-  if (!email) return sOSSetErr('Enter your email address');
-  if (!window._sOSdb) return sOSSetErr('Still loading, please wait a moment...');
-  var btn = document.getElementById('btn-reset');
-  if (btn) { btn.textContent = 'Sending...'; btn.disabled = true; }
-  sOSSetErr('');
-  window._sOSdb.auth.resetPasswordForEmail(email)
-    .then(function() {
-      sOSSetErr('');
-      var errEl = document.getElementById('auth-err');
-      if (errEl) { errEl.style.color = '#10b981'; errEl.textContent = 'Reset link sent! Check your email.'; }
-      if (btn) { btn.textContent = 'Sent!'; btn.disabled = false; }
-    });
-}
-
-function sOSDemo() {
-  if (window._sOSStartDemo) { window._sOSStartDemo(); } 
-  else { setTimeout(function(){ if(window._sOSStartDemo) window._sOSStartDemo(); else sOSSetErr('Still loading, please try again'); }, 1000); }
+function sOSDemo(){
+  if(window._sOSStartDemo)window._sOSStartDemo();
+  else{var t=0;var i=setInterval(function(){t++;if(window._sOSStartDemo){clearInterval(i);window._sOSStartDemo();}else if(t>20){clearInterval(i);sOSErr('Still loading, please refresh');}},200);}
 }
 </script>
-<meta charset="UTF-8"/>
-<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-<title>SetterOS</title>
-
 <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet"/>
 <style>
 :root{--bg:#07070f;--bg2:#0d0d1c;--bg3:#111128;--border:#1c1c35;--accent:#6d28d9;--accent2:#8b5cf6;--text:#e0deff;--muted:#555570;--dim:#2a2a45;--green:#22c55e;--red:#ef4444;--amber:#f59e0b;}
@@ -212,21 +180,20 @@ input[type=checkbox]{accent-color:var(--accent);width:14px;height:14px;cursor:po
 </head>
 <body>
 
-<!-- AUTH -->
 <div id="auth-screen">
   <div class="auth-box">
     <div class="auth-logo">Setter<span>OS</span></div>
     <p class="auth-sub">Appointment setter command centre</p>
     <div class="auth-tabs">
-      <button class="auth-tab active" id="btn-tab-login" onclick="sOSShowPanel('login')">Sign In</button>
-      <button class="auth-tab" id="btn-tab-signup" onclick="sOSShowPanel('signup')">Create Account</button>
+      <button class="auth-tab active" id="btn-tab-login" onclick="sOSPanel('login')">Sign In</button>
+      <button class="auth-tab" id="btn-tab-signup" onclick="sOSPanel('signup')">Create Account</button>
     </div>
 
     <div id="panel-login">
       <div class="auth-field"><label class="auth-label">Email</label><input class="auth-inp" id="login-email" type="email" placeholder="you@email.com"/></div>
       <div class="auth-field"><label class="auth-label">Password</label><input class="auth-inp" id="login-pass" type="password" placeholder="Your password"/></div>
       <button class="auth-btn" id="btn-signin" onclick="sOSSignIn()">Sign In &rarr;</button>
-      <p style="text-align:center;margin-top:14px;"><button id="btn-show-forgot" onclick="sOSShowPanel('forgot')" style="background:none;border:none;color:var(--muted);font-size:12px;cursor:pointer;font-family:Syne,sans-serif;text-decoration:underline;">Forgot password?</button></p>
+      <p style="text-align:center;margin-top:14px;"><button id="btn-show-forgot" onclick="sOSPanel('forgot')" style="background:none;border:none;color:var(--muted);font-size:12px;cursor:pointer;font-family:Syne,sans-serif;text-decoration:underline;">Forgot password?</button></p>
     </div>
 
     <div id="panel-signup" style="display:none;">
@@ -241,8 +208,8 @@ input[type=checkbox]{accent-color:var(--accent);width:14px;height:14px;cursor:po
     <div id="panel-forgot" style="display:none;">
       <p style="font-size:13px;color:var(--muted);margin-bottom:16px;">Enter your email and we'll send a reset link.</p>
       <div class="auth-field"><label class="auth-label">Email</label><input class="auth-inp" id="forgot-email" type="email" placeholder="you@email.com"/></div>
-      <button class="auth-btn" id="btn-reset" onclick="sOSResetPw()">Send Reset Link &rarr;</button>
-      <p style="text-align:center;margin-top:14px;"><button id="btn-back-login" onclick="sOSShowPanel('login')" style="background:none;border:none;color:var(--muted);font-size:12px;cursor:pointer;font-family:Syne,sans-serif;text-decoration:underline;">Back to Sign In</button></p>
+      <button class="auth-btn" id="btn-reset" onclick="sOSReset()">Send Reset Link &rarr;</button>
+      <p style="text-align:center;margin-top:14px;"><button id="btn-back-login" onclick="sOSPanel('login')" style="background:none;border:none;color:var(--muted);font-size:12px;cursor:pointer;font-family:Syne,sans-serif;text-decoration:underline;">Back to Sign In</button></p>
     </div>
 
     <div class="auth-err" id="auth-err"></div>
@@ -251,7 +218,6 @@ input[type=checkbox]{accent-color:var(--accent);width:14px;height:14px;cursor:po
   </div>
 </div>
 
-<!-- PROFILE SETUP -->
 <div class="profile-setup" id="profile-setup">
   <div class="profile-box">
     <div style="font-size:20px;font-weight:800;color:#fff;margin-bottom:6px;">Welcome to SetterOS </div>
@@ -749,10 +715,13 @@ input[type=checkbox]{accent-color:var(--accent);width:14px;height:14px;cursor:po
 
 <div class="notif hidden" id="notif"></div>
 
+<div class="notif hidden" id="notif"></div>
+
 <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
+
 // All event wiring happens after DOM is ready - no onclick attributes
 document.addEventListener('DOMContentLoaded', function() {
 
@@ -765,6 +734,7 @@ document.addEventListener('DOMContentLoaded', function() {
     return;
   }
   var db = _supaLib.createClient(SUPA_URL, SUPA_KEY);
+  window._db = db;
   window._sOSdb = db;
 
   // \u2500\u2500 STATE \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
@@ -937,8 +907,8 @@ https://us06web.zoom.us/j/89830054475?pwd=4iblC0cf1J8T7FTdmwQpzeD6pqMxCk.1'},
   });
 
   // \u2500\u2500 DEMO \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
-  document.getElementById('btn-demo').addEventListener('click', function() {
-    isDemoMode = true;
+  window._sOSStartDemo = function() {
+  isDemoMode = true;
     currentUser = {id: 'demo'};
     currentProfile = {user_id:'demo', name:'Ben', role:'setter', closer_name:'Harrison', calendar_url:'', offer_details:'Wholesale Mastery \u2014 AI CRM, 6000+ buyer network, contracts, scripts and coaching. Most people close their first deal within 30-45 days working 10hrs/week.'};
     allLeads = DEMO_LEADS.map(function(l) { return Object.assign({}, l); });
@@ -969,7 +939,8 @@ https://us06web.zoom.us/j/89830054475?pwd=4iblC0cf1J8T7FTdmwQpzeD6pqMxCk.1'},
     renderScripts();
     renderResources();
     renderAll();
-  });
+  };
+  document.getElementById('btn-demo').addEventListener('click', sOSDemo);
 
   function exitDemo() {
     isDemoMode = false;
@@ -2285,6 +2256,7 @@ Chat:\
 
 
 }); // end DOMContentLoaded
+
 </script>
 </body>
 </html>
